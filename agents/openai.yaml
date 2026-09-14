@@ -1,0 +1,7 @@
+interface:
+  display_name: "SSH Hosts"
+  short_description: "在 macOS、Linux、Windows 上安全管理 SSH 主机"
+  icon_small: "./assets/ssh-hosts-icon-128.png"
+  icon_large: "./assets/ssh-hosts-icon-512.png"
+  brand_color: "#36E88A"
+  default_prompt: "使用 $ssh-hosts 检查已配置的 SSH 主机，并仅在确有需要时提升权限。"

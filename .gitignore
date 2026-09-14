@@ -1,0 +1,19 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.venv/
+venv/
+.clawhub/
+
+# Never commit machine-specific SSH or credential material.
+.ssh/
+hosts.md
+*.pem
+*.key
+*.p12
+*.pfx
+*.kdbx
+*.env
+.env.*
