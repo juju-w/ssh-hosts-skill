@@ -40,20 +40,20 @@ Host home-nas
     IdentityFile ~/.ssh/id_ed25519
 ```
 
-Then run the read-only setup check:
+Then run the read-only setup check from a repository checkout:
 
 ```bash
-python3 scripts/setup_ssh_hosts.py
-python3 scripts/setup_ssh_hosts.py --host home-nas
+python3 skills/ssh-hosts/scripts/setup_ssh_hosts.py
+python3 skills/ssh-hosts/scripts/setup_ssh_hosts.py --host home-nas
 ```
 
 Windows users can start with the PowerShell bootstrap, including an explicit trusted Python path
 when using an embedded or portable runtime:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup_ssh_hosts.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File skills/ssh-hosts/scripts/setup_ssh_hosts.ps1
 
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup_ssh_hosts.ps1 `
+powershell -NoProfile -ExecutionPolicy Bypass -File skills/ssh-hosts/scripts/setup_ssh_hosts.ps1 `
   -PythonPath "C:\path\to\python.exe"
 ```
 
@@ -65,7 +65,7 @@ First let the helper detect root or `NOPASSWD`. Only when password-backed sudo i
 run this yourself in a trusted local terminal:
 
 ```bash
-python3 scripts/sudo_credential.py set home-nas
+python3 skills/ssh-hosts/scripts/sudo_credential.py set home-nas
 ```
 
 Never send a sudo password through an Agent conversation.
@@ -79,13 +79,14 @@ Never send a sudo password through an Agent conversation.
 | Linux headless | OpenSSH Client | Root/scoped `NOPASSWD` recommended |
 | Windows 10/11 | Windows OpenSSH Client | Windows Credential Manager |
 
-See [platform details](references/platforms.md) and [usage examples](references/examples.md).
+See [platform details](skills/ssh-hosts/references/platforms.md) and
+[usage examples](skills/ssh-hosts/references/examples.md).
 
 ## Test
 
 ```bash
 python3 -m unittest discover -s tests -v
-python3 -m compileall -q scripts tests
+python3 -m compileall -q skills/ssh-hosts/scripts tests
 ```
 
 The test suite is exercised on macOS, Linux, and Windows. Credential-store smoke tests use only

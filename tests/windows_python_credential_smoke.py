@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills" / "ssh-hosts" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import sudo_credential  # noqa: E402

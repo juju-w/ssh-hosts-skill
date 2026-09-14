@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[1] / "skills" / "ssh-hosts" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import ssh_sudo  # noqa: E402

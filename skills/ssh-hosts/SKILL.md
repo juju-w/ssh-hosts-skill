@@ -1,17 +1,15 @@
 ---
 name: ssh-hosts
-slug: ssh-hosts
-version: 1.1.1
-displayName: SSH Hosts
-summary: 面向 macOS、Linux 与 Windows 的安全 SSH 主机管理，自动使用系统原生保险柜处理可选的 sudo 凭据。
 description: Securely inspect and manage explicit OpenSSH host aliases on macOS, Linux, and Windows. Use for servers, NAS, VPS, Docker, logs, disks, services, remote diagnostics, or file transfer. 当用户提到服务器、NAS、SSH 主机、远程巡检、Docker、日志、磁盘、服务管理或文件传输时使用。
-author: JuJu
-tags:
-  - ssh
-  - devops
-  - infrastructure
-  - security
+license: MIT-0
 metadata:
+  version: 1.1.1
+  author: JuJu
+  tags:
+    - ssh
+    - devops
+    - infrastructure
+    - security
   openclaw:
     requires:
       bins:
