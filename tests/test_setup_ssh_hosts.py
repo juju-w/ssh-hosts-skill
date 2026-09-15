@@ -22,7 +22,7 @@ def result(returncode: int, stdout: bytes = b"", stderr: bytes = b"") -> subproc
 
 class SetupTests(unittest.TestCase):
     def args(self, host: str | None = None) -> SimpleNamespace:
-        return SimpleNamespace(config=Path("/tmp/ssh-config"), host=host)
+        return SimpleNamespace(config=Path("/tmp/ssh-config"), host=host, connect_timeout=10)
 
     @mock.patch.object(setup_ssh_hosts, "backend_problem", return_value=None)
     @mock.patch.object(setup_ssh_hosts, "backend_name", return_value="test vault")
@@ -40,7 +40,8 @@ class SetupTests(unittest.TestCase):
         parse.return_value = self.args()
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            self.assertEqual(setup_ssh_hosts.main(), 0)
+            self.assertEqual(setup_ssh_hosts.main(), 1)
+        self.assertIn("status: needs_setup", output.getvalue())
         self.assertIn("Host <alias>", output.getvalue())
 
     @mock.patch.object(setup_ssh_hosts, "probe", return_value=result(0, b"0\n"))
@@ -65,7 +66,7 @@ class SetupTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             self.assertEqual(setup_ssh_hosts.main(), 0)
         self.assertIn("root", output.getvalue())
-        self.assertIn("无需保存 sudo 密码", output.getvalue())
+        self.assertIn("credential: not needed", output.getvalue())
 
     def test_permission_denied_has_key_diagnostics(self) -> None:
         message = setup_ssh_hosts.explain_ssh_failure(
@@ -73,6 +74,27 @@ class SetupTests(unittest.TestCase):
         )
         self.assertIn("IdentityFile", message)
         self.assertIn("authorized_keys", message)
+
+    def test_dns_failure_has_stable_code_and_next_command(self) -> None:
+        message = setup_ssh_hosts.explain_ssh_failure(
+            "nas", result(255, stderr=b"ssh: Could not resolve hostname nas: Name or service not known\n")
+        )
+        self.assertIn("error: ssh.hostname_resolution_failed", message)
+        self.assertIn("next: ssh -G -- nas", message)
+
+    def test_timeout_has_stable_code_and_network_hint(self) -> None:
+        message = setup_ssh_hosts.explain_ssh_failure(
+            "nas", result(255, stderr=b"ssh: connect to host nas port 22: Connection timed out\n")
+        )
+        self.assertIn("error: ssh.network_unreachable", message)
+        self.assertIn("VPN", message)
+
+    def test_host_key_failure_does_not_recommend_bypassing_verification(self) -> None:
+        message = setup_ssh_hosts.explain_ssh_failure(
+            "nas", result(255, stderr=b"Host key verification failed.\n")
+        )
+        self.assertIn("error: ssh.host_key_verification_failed", message)
+        self.assertIn("Do not disable StrictHostKeyChecking", message)
 
 
 if __name__ == "__main__":

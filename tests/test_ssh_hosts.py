@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -63,8 +64,53 @@ Host [legacy]
             config.write_text("Host known-host\n", encoding="utf-8")
 
             self.assertEqual(ssh_hosts.require_alias("known-host", config), "known-host")
-            with self.assertRaisesRegex(ValueError, "unregistered SSH alias"):
+            with self.assertRaisesRegex(ValueError, "ssh.alias_not_registered"):
                 ssh_hosts.require_alias("arbitrary.example", config)
+
+    def test_rejects_invalid_alias_without_echoing_control_characters(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            ssh_hosts.require_alias("nas\nmisleading-output", Path("unused"))
+
+        self.assertIn("ssh.alias_invalid", str(raised.exception))
+        self.assertNotIn("misleading-output", str(raised.exception))
+
+
+class InvocationTests(unittest.TestCase):
+    @mock.patch.object(ssh_hosts.shutil, "which", return_value=None)
+    def test_missing_openssh_has_stable_code_and_next_step(self, _which: mock.Mock) -> None:
+        with self.assertRaises(RuntimeError) as raised:
+            ssh_hosts.ssh_binary()
+
+        self.assertIn("error: local.openssh_missing", str(raised.exception))
+        self.assertIn("next: Install or enable OpenSSH Client", str(raised.exception))
+
+    @mock.patch.object(ssh_hosts, "ssh_binary", return_value="/usr/bin/ssh")
+    def test_connection_timeout_is_always_explicit(self, _binary: mock.Mock) -> None:
+        command = ssh_hosts.ssh_invocation("nas", "true", 12)
+
+        self.assertIn("BatchMode=yes", command)
+        self.assertIn("ConnectTimeout=12", command)
+
+    def test_invalid_connection_timeout_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at least 1 second"):
+            ssh_hosts.ssh_invocation("nas", "true", 0)
+
+
+class DiagnosticTests(unittest.TestCase):
+    def test_common_failures_have_distinct_stable_codes(self) -> None:
+        cases = {
+            b"connect to host nas port 22: Connection refused\n": "ssh.connection_refused",
+            b"stdio forwarding failed\n": "ssh.proxy_jump_failed",
+            b"Bad configuration option: madeup\n": "ssh.config_invalid",
+            b"an unexpected OpenSSH failure\n": "ssh.connection_failed",
+        }
+
+        for stderr, expected_code in cases.items():
+            with self.subTest(expected_code=expected_code):
+                result = subprocess.CompletedProcess([], 255, stdout=b"", stderr=stderr)
+                diagnostic = ssh_hosts.diagnose_ssh_failure("nas", result)
+                self.assertEqual(diagnostic.code, expected_code)
+                self.assertTrue(diagnostic.next_step.startswith("ssh "))
 
 
 if __name__ == "__main__":

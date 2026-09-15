@@ -11,7 +11,13 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from sudo_credential import exists, main as credential_main, service, ssh_user, store
+from sudo_credential import (  # noqa: E402, F401
+    exists,
+    main as credential_main,
+    service,
+    ssh_user,
+    store,
+)
 
 
 def main() -> int:

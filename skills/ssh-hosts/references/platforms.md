@@ -1,77 +1,82 @@
-# 平台适配与安全边界
+# Platform support and security boundaries
 
-SSH Hosts 在三个桌面平台上保持同一条使用路径：先读取 `~/.ssh/config` 中明确登记的别名，
-优先用普通权限；只有远端既不是 root、也没有非交互 sudo，而且任务确实需要提权时，才读取
-本机原生保险柜里的 sudo 密码。
+SSH Hosts follows the same path on macOS, Linux, and Windows: resolve an explicit alias from
+`~/.ssh/config`, try ordinary permissions first, and read a sudo password from the caller's native
+vault only when the remote account is not root, non-interactive sudo is unavailable, and the task
+actually requires elevation.
 
-## 支持矩阵
+## Support matrix
 
-| 调用端系统 | SSH 客户端 | 可选 sudo 密码保险柜 | 常见缺口 |
+| Caller platform | SSH client | Optional sudo vault | Common limitation |
 | --- | --- | --- | --- |
-| macOS | 系统 OpenSSH | macOS Keychain | 通常开箱即用；钥匙串锁定时需要本机用户解锁 |
-| Linux 桌面 | OpenSSH Client | Secret Service（`secret-tool`） | 发行版可能没装 libsecret 工具，或登录钥匙环未解锁 |
-| Linux 服务器/无桌面 | OpenSSH Client | 取决于是否部署用户 Secret Service | 常常没有 D-Bus 会话和钥匙环；建议范围受限的 `NOPASSWD` |
-| Windows 10/11 | Windows OpenSSH Client | Windows Credential Manager | OpenSSH Client 可能尚未启用；Python 需可从终端调用 |
+| macOS | System OpenSSH | macOS Keychain | A locked Keychain requires the local user to unlock it |
+| Linux desktop | OpenSSH Client | Secret Service (`secret-tool`) | The libsecret CLI or an unlocked login keyring may be missing |
+| Linux headless | OpenSSH Client | Depends on a user Secret Service | D-Bus and a keyring are often absent; scoped `NOPASSWD` is preferred |
+| Windows 10/11 | Windows OpenSSH Client | Windows Credential Manager | OpenSSH Client may need enabling; Python must be callable from the terminal |
 
-如果远端账号是 root，或 `sudo -n -v` 已成功，以上保险柜都不会被使用。
+The native vault is not used when the remote account is root or `sudo -n -v` succeeds.
 
-## 一键自检
+## Read-only readiness check
 
 ```bash
 python3 scripts/setup_ssh_hosts.py
 python3 scripts/setup_ssh_hosts.py --host <alias>
 ```
 
-Windows 用户即使尚未安装 Python，也可以先运行只读 PowerShell 引导：
+The probe sets a finite SSH connection timeout and classifies common failures such as public-key
+authentication, DNS, VPN or network reachability, host-key verification, refused connections,
+ProxyJump forwarding, and malformed OpenSSH configuration. Each diagnostic includes a stable error
+code, a plain-language message, and the shortest useful next command.
+
+Windows users can run the read-only PowerShell bootstrap even before Python is available:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup_ssh_hosts.ps1
 ```
 
-它不会自动安装软件，只会明确说明 OpenSSH、SSH 配置或 Python 缺少哪一项。普通 `ssh.exe`
-连接不依赖 Python；别名解析和 sudo 保险柜辅助脚本需要 Python 3。
+It does not install software. It reports whether OpenSSH, SSH configuration, or Python is missing.
+Ordinary `ssh.exe` connections do not require Python; alias discovery and native-vault helpers do.
 
-如果 Python 来自便携环境或其他受信任工具、没有加入 PATH，可以显式指定解释器，不必安装
-第二份 Python 或修改系统 PATH：
+If a trusted portable or embedded Python runtime is not on PATH, specify it without installing a
+second copy or modifying the system PATH:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup_ssh_hosts.ps1 `
   -PythonPath "C:\path\to\python.exe"
 ```
 
-自检只读取本机环境和远端权限状态，不会保存密码、修改 SSH 配置或执行管理操作。它会给出
-最短的下一步，例如添加明确的 `Host` 别名、修复密钥认证、启用 OpenSSH Client、安装
-`secret-tool`，或在可信终端登记 sudo 凭据。
-
 ## Linux
 
-Linux 密码兜底使用 Freedesktop Secret Service，通过 `secret-tool` 查找、保存和删除条目。
-密码只通过标准输入传给工具，不进入命令参数。桌面钥匙环不可用、未解锁或当前会话没有
-D-Bus 时，操作会明确失败，不会降级为明文文件。
+The Linux password fallback uses Freedesktop Secret Service through `secret-tool`. Passwords pass
+through stdin and never enter process arguments. If the desktop keyring is unavailable, locked, or
+not attached to the current D-Bus session, the operation fails explicitly and does not fall back to
+a plaintext file.
 
-不同发行版的软件包名称不同，请使用发行版提供的 libsecret 命令行工具包。无桌面服务器
-更适合为确实需要的命令配置范围受限的 `NOPASSWD`，而不是为了本 Skill 额外运行一套桌面
-钥匙环。
+Package names vary by distribution; install the distribution's libsecret command-line tools when
+using a desktop keyring. On headless servers, narrowly scoped `NOPASSWD` rules are usually a better
+fit than running a desktop keyring only for this Skill.
 
 ## Windows
 
-Windows 使用当前登录用户的 Credential Manager。实现直接调用系统 Credential API，不需要
-安装第三方 PowerShell 模块，也不会把密码放进命令参数。OpenSSH Client 若不可用，请先通过
-Windows 的可选功能或系统管理策略启用。
+Windows uses Credential Manager for the current signed-in user. The implementation calls the
+system Credential API directly, requires no third-party PowerShell module, and does not place the
+password in process arguments. Enable Windows OpenSSH Client through optional features or managed
+system policy when it is missing.
 
-发布前可在一台隔离的 Windows 测试机运行 `tests/windows_python_credential_smoke.py` 验证实际
-Python 后端，或运行 `tests/windows_credential_smoke.ps1` 单独验证系统 API。两者都只写入一个
-随机命名、随机内容的合成条目，完成读回校验后立即删除，不读取或覆盖任何现有凭据。测试必须
-由目标用户在 Windows 本地交互登录会话中运行；OpenSSH 或 WinRM 远程会话可能没有可用的用户
-Credential Manager 登录上下文，因此远程写入失败不能证明本地实现不可用。
+Before a release, `tests/windows_python_credential_smoke.py` can verify the actual Python backend
+on an isolated Windows machine, while `tests/windows_credential_smoke.ps1` checks the system API
+directly. Both create one randomly named synthetic credential, verify it, and immediately delete
+it without reading or replacing existing credentials. Run these tests in a local interactive user
+session; OpenSSH and WinRM sessions may not have the same Credential Manager logon context.
 
-自动化实验室可以在一个已登录的隔离 Windows 用户会话中，通过一次性“仅交互用户”计划任务
-调用 `tests/windows_interactive_credential_smoke.ps1`。测试后必须删除计划任务、结果文件和
-临时目录；不要在生产用户会话中把该测试注册为常驻任务。
+An automated lab may run `tests/windows_interactive_credential_smoke.ps1` through a one-time,
+interactive-user-only scheduled task. Delete the task, result files, and temporary directory after
+the test. Never register it as a persistent task in a production user session.
 
-## 凭据登记与删除
+## Credential enrollment and deletion
 
-这些命令只能由用户在自己的可信本地终端运行；Agent 不应代替用户输入密码：
+Only the user should run these commands in a trusted local terminal; the Agent must not enter the
+password on the user's behalf:
 
 ```bash
 python3 scripts/sudo_credential.py set <alias>
@@ -79,12 +84,13 @@ python3 scripts/sudo_credential.py status <alias>
 python3 scripts/sudo_credential.py delete <alias>
 ```
 
-原来的 `sudo_keychain.py` 在 macOS 上继续保留为兼容入口，新配置统一使用
-`sudo_credential.py`。
+The older `sudo_keychain.py` remains as a macOS compatibility entry point. New configuration uses
+the unified `sudo_credential.py` command.
 
-## 保险柜能保护什么
+## What the native vault protects
 
-原生保险柜避免密码出现在 Skill 文件、Shell 历史和进程参数中，也把存储绑定到当前操作系统
-用户。但它不是隔离 Broker：同一登录用户下的恶意进程仍可能滥用用户已有的访问能力。需要
-逐次系统认证、细粒度审批或更强 Agent 隔离时，应使用具备独立授权边界的运行时，而不是在
-这个轻量 Skill 里保存长期管理员密码。
+The native vault keeps passwords out of Skill files, shell history, and process arguments, and
+binds storage to the current operating-system user. It is not an isolated authorization broker: a
+malicious process running as the same signed-in user may still abuse that user's existing access.
+Use a runtime with a separate authorization boundary when per-operation system authentication,
+fine-grained approval, or stronger Agent isolation is required.

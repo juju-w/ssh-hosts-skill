@@ -1,49 +1,81 @@
-# 常用示例
+# Usage examples
 
-以下命令中的 `<alias>` 必须替换为用户 OpenSSH 配置里明确声明的 `Host` 别名。先从只读
-操作开始；不要把主机地址、用户名、密码或私钥写入 Skill。
+Replace `<alias>` with an explicit `Host` alias from the user's OpenSSH configuration. Start with
+read-only operations. Never place a host address, username, password, or private key in the Skill.
 
-## 第一次使用
+## Quick task map
 
-先运行一键自检。它不会修改配置，也不会读取密码：
+- First use or connection failure: run the readiness check below.
+- Host health: combine a few closely related read-only checks in one SSH call.
+- Docker or logs: try the registered account first; use sudo only after a permission failure.
+- File transfer: confirm the source, destination, and overwrite risk before copying.
+- Password-backed sudo: let the user provision the native vault from a trusted terminal.
+
+## First use
+
+Run the read-only readiness check. It does not change configuration or read passwords:
 
 ```bash
 python3 scripts/setup_ssh_hosts.py
 ```
 
-列出已经登记的主机别名，不展示 IP 或其他连接细节：
+Representative successful output:
+
+```text
+system: Darwin
+openssh: available (/usr/bin/ssh)
+registered_hosts: 2
+aliases: home-nas, production-api
+sudo_vault: available (macOS Keychain)
+status: ready
+next: Use --host <alias> to check SSH and sudo readiness.
+```
+
+List registered aliases without revealing endpoints:
 
 ```bash
 python3 scripts/ssh_hosts.py list
 ```
 
-检查 OpenSSH 能否以密钥方式连接：
+Check whether OpenSSH can connect with public-key authentication:
 
 ```bash
-ssh -o BatchMode=yes -- <alias> 'uname -a'
+ssh -o BatchMode=yes -o ConnectTimeout=10 -- <alias> 'uname -a'
 ```
 
-如果连接失败，检查 `ssh -G -- <alias>` 的有效配置，但不要输出私钥内容。
+If authentication fails, the readiness check returns a stable error category and a concrete next
+command:
 
-## 主机健康巡检
+```text
+error: ssh.authentication_failed
+host: home-nas
+message: Public-key authentication was rejected.
+next: ssh -v -- home-nas
+hint: Check IdentityFile, ssh-agent, and the remote authorized_keys file. Password login is not used.
+```
 
-把紧密相关的只读检查放在一次 SSH 调用中，减少往返：
+Use `ssh -G -- <alias>` to inspect effective configuration. Do not print private-key contents.
+
+## Host health
+
+Combine closely related read-only checks to reduce round trips:
 
 ```bash
-ssh -o BatchMode=yes -- <alias> \
+ssh -o BatchMode=yes -o ConnectTimeout=10 -- <alias> \
   'uptime; printf "\n-- filesystems --\n"; df -h; printf "\n-- memory --\n"; free -h 2>/dev/null || true'
 ```
 
-## Docker 状态
+## Docker status
 
-先直接使用当前远程账号；它可能已经属于 `docker` 组，不需要 sudo：
+Try the registered account first. Membership in the `docker` group may already provide access:
 
 ```bash
-ssh -o BatchMode=yes -- <alias> \
+ssh -o BatchMode=yes -o ConnectTimeout=10 -- <alias> \
   'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"'
 ```
 
-只有返回权限不足时，才考虑 sudo 或调整远程账号权限。查看 Docker 服务状态属于只读操作：
+Only consider sudo or a remote account change after a permission failure. Reading Docker service
+status is non-destructive:
 
 ```bash
 python3 scripts/ssh_sudo.py \
@@ -51,39 +83,40 @@ python3 scripts/ssh_sudo.py \
   systemctl status docker
 ```
 
-重启容器或 Docker 服务会中断业务，必须先获得用户确认。
+Restarting a container or the Docker service can interrupt workloads and requires confirmation.
 
-## 查询日志
+## Logs
 
-先尝试当前账号可读取的日志，并限制输出量：
+First try logs available to the registered account and keep output bounded:
 
 ```bash
-ssh -o BatchMode=yes -- <alias> \
+ssh -o BatchMode=yes -o ConnectTimeout=10 -- <alias> \
   'journalctl -u docker --since "30 minutes ago" --no-pager -n 200'
 ```
 
-如果系统日志确实要求管理员权限，再通过 `ssh_sudo.py` 执行同一条限定范围的查询。
+If the same bounded query genuinely requires administrator access, run it through `ssh_sudo.py`.
 
-## 文件传输
+## File transfer
 
-使用 OpenSSH 自带的 `scp`，让 SSH 配置处理跳板机、Agent 和密钥：
+Use OpenSSH `scp` so SSH configuration continues to handle jump hosts, agents, and keys:
 
 ```bash
 scp -- ./local-file <alias>:/tmp/
 scp -- <alias>:/tmp/remote-file ./
 ```
 
-覆盖远程文件、写入系统目录或传输敏感数据前，先确认目标路径和影响。
+Confirm the destination and impact before overwriting a remote file, writing a system directory, or
+transferring sensitive data.
 
-## sudo 密码兜底
+## Password-backed sudo fallback
 
-root 账号和 `NOPASSWD` sudo 在 macOS、Linux、Windows 调用端都可直接使用。只有确实必须
-保存 sudo 密码时，才让用户在自己的可信终端执行统一入口：
+Root accounts and `NOPASSWD` sudo work without a stored password on every caller platform. Only
+when password-backed sudo is actually required should the user run:
 
 ```bash
 python3 scripts/setup_ssh_hosts.py --host <alias>
 python3 scripts/sudo_credential.py set <alias>
 ```
 
-macOS 会使用钥匙串，Linux 会使用 Secret Service，Windows 会使用凭据管理器。不要在对话中
-索要密码，也不要在原生保险柜不可用时创建明文密码文件。
+macOS uses Keychain, Linux uses Secret Service, and Windows uses Credential Manager. Never request
+the password in conversation or create a plaintext fallback when the native vault is unavailable.

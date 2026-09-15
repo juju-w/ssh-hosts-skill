@@ -1,34 +1,37 @@
 # SSH Hosts
 
-[中文](README.md) | [English](README.en.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 [![skills.sh](https://skills.sh/b/juju-w/ssh-hosts-skill)](https://skills.sh/juju-w/ssh-hosts-skill)
 
-安全、可审计、跨平台的 SSH 主机管理 Agent Skill。它只接受用户 OpenSSH 配置中明确声明的
-`Host` 别名，优先使用普通权限，并且只在确有需要时使用 sudo。
+A secure, auditable, cross-platform SSH host management Agent Skill. It accepts only explicit
+`Host` aliases from the user's OpenSSH configuration, tries ordinary permissions first, and uses
+sudo only when the task actually requires it.
 
-## 为什么使用
+## Why use it
 
-- 只允许明确配置的 SSH 别名，拒绝任意主机名和 IP 地址。
-- 强制使用 `BatchMode=yes`，不会悄悄退回到 SSH 密码登录。
-- root 账户和限定范围的 `NOPASSWD` 无需保存凭据。
-- 可选的 sudo 凭据存入 macOS 钥匙串、Linux Secret Service 或 Windows 凭据管理器，绝不写入明文文件。
-- 密码只通过标准输入传递，不进入命令参数或 Shell 历史。
-- 默认先做只读诊断，中断服务或修改系统前必须确认。
+- Accepts only explicit SSH aliases; arbitrary hostnames and IP addresses are rejected.
+- Enforces `BatchMode=yes` and never silently falls back to SSH password login.
+- Root accounts and scoped `NOPASSWD` work without stored credentials.
+- Optional sudo credentials use macOS Keychain, Linux Secret Service, or Windows Credential
+  Manager—never plaintext files.
+- Passwords travel through stdin, not process arguments or shell history.
+- Read-only diagnostics come first, with confirmation required before disruptive changes.
 
-## 安装
+## Install
 
-使用开源的 `skills` CLI 安装：
+Install with the open-source `skills` CLI:
 
 ```bash
 npx skills add juju-w/ssh-hosts-skill
 ```
 
-也可以克隆仓库，再把 `skills/ssh-hosts` 复制到 Agent 使用的 Skill 目录。
+Alternatively, clone the repository and copy `skills/ssh-hosts` into the Skill directory used by
+your Agent.
 
-## 首次使用
+## First run
 
-确认 `~/.ssh/config` 中至少存在一个明确的别名：
+Make sure at least one concrete alias exists in `~/.ssh/config`:
 
 ```sshconfig
 Host home-nas
@@ -37,15 +40,15 @@ Host home-nas
     IdentityFile ~/.ssh/id_ed25519
 ```
 
-在仓库工作副本中运行只读自检：
+Run the read-only setup check from a repository checkout:
 
 ```bash
 python3 skills/ssh-hosts/scripts/setup_ssh_hosts.py
 python3 skills/ssh-hosts/scripts/setup_ssh_hosts.py --host home-nas
 ```
 
-Windows 用户可以使用 PowerShell 启动脚本。使用内嵌或便携 Python 时，可以显式指定可信的
-Python 路径：
+Windows users can use the PowerShell bootstrap. An explicit trusted Python path can be supplied
+when using an embedded or portable runtime:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File skills/ssh-hosts/scripts/setup_ssh_hosts.ps1
@@ -54,46 +57,56 @@ powershell -NoProfile -ExecutionPolicy Bypass -File skills/ssh-hosts/scripts/set
   -PythonPath "C:\path\to\python.exe"
 ```
 
-自检不会修改 SSH 配置、安装软件或读取密码。
+The setup check does not modify SSH configuration, install software, or read passwords.
 
-## 可选的 sudo 凭据
+## Optional sudo credential
 
-先让辅助脚本判断远端账户是否为 root 或已经支持 `NOPASSWD`。只有确实需要密码 sudo 时，才在
-用户自己的可信终端中执行：
+First let the helper detect whether the remote account is root or already has `NOPASSWD`. Only when
+password-backed sudo is actually necessary, run this yourself in a trusted local terminal:
 
 ```bash
 python3 skills/ssh-hosts/scripts/sudo_credential.py set home-nas
 ```
 
-不要通过 Agent 对话发送 sudo 密码。
+Never send a sudo password through an Agent conversation.
 
-## 平台支持
+## Platform support
 
-| 调用端平台 | SSH | 可选 sudo 保险柜 |
+| Caller platform | SSH | Optional sudo vault |
 | --- | --- | --- |
-| macOS | 系统 OpenSSH | macOS 钥匙串 |
-| Linux 桌面 | OpenSSH Client | Secret Service（`secret-tool`） |
-| Linux 无桌面服务器 | OpenSSH Client | 推荐 root 或限定范围的 `NOPASSWD` |
-| Windows 10/11 | Windows OpenSSH Client | Windows 凭据管理器 |
+| macOS | System OpenSSH | macOS Keychain |
+| Linux desktop | OpenSSH Client | Secret Service (`secret-tool`) |
+| Linux headless | OpenSSH Client | Root or scoped `NOPASSWD` recommended |
+| Windows 10/11 | Windows OpenSSH Client | Windows Credential Manager |
 
-参阅[平台说明](skills/ssh-hosts/references/platforms.md)和
-[使用示例](skills/ssh-hosts/references/examples.md)。
+See [platform details](skills/ssh-hosts/references/platforms.md) and
+[usage examples](skills/ssh-hosts/references/examples.md).
 
-## 测试
+## Troubleshooting
+
+The readiness and sudo helpers use a finite SSH connection timeout and return stable fields such as
+`error`, `message`, `next`, and `hint`. Common failures distinguish public-key authentication, DNS,
+network reachability, host-key verification, refused connections, ProxyJump, and invalid OpenSSH
+configuration. See [representative output](skills/ssh-hosts/references/examples.md#first-use).
+
+Start with `setup_ssh_hosts.py --host <alias>` instead of guessing at SSH options. Its `next` field
+is safe to copy into a local terminal, while `hint` explains what to inspect and what not to bypass.
+
+## Test
 
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m compileall -q skills/ssh-hosts/scripts tests
 ```
 
-测试套件会在 macOS、Linux 和 Windows 上运行。凭据保险柜冒烟测试只使用随机生成的合成数据，
-并在测试结束后立即删除。
+The test suite runs on macOS, Linux, and Windows. Credential-vault smoke tests use only random
+synthetic values and delete them immediately.
 
-## 安全
+## Security
 
-报告安全问题前请阅读 [SECURITY.md](SECURITY.md)。Issue 中不要包含真实主机、用户名、密钥、
-密码、Token 或命令输出。
+Read [SECURITY.md](SECURITY.md) before reporting a vulnerability. Do not include real hosts,
+usernames, keys, passwords, tokens, or command output in an issue.
 
-## 许可证
+## License
 
 [MIT-0](LICENSE)

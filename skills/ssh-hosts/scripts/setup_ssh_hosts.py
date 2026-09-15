@@ -13,20 +13,36 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from ssh_hosts import DEFAULT_CONFIG, explicit_aliases, require_alias, ssh_binary
-from sudo_credential import backend_name, backend_problem, exists, ssh_user
+from ssh_hosts import (  # noqa: E402
+    DEFAULT_CONFIG,
+    DEFAULT_CONNECT_TIMEOUT,
+    diagnose_ssh_failure,
+    explicit_aliases,
+    require_alias,
+    ssh_binary,
+    ssh_invocation,
+)
+from sudo_credential import backend_name, backend_problem, exists, ssh_user  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="SSH Hosts 一键环境自检（不会修改系统或读取密码）")
+    parser = argparse.ArgumentParser(
+        description="Read-only SSH Hosts readiness check; does not change the system or read passwords"
+    )
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--host", help="可选：同时检查一个已登记主机的连接与 sudo 路径")
+    parser.add_argument("--host", help="Also check connectivity and sudo readiness for one registered alias")
+    parser.add_argument(
+        "--connect-timeout",
+        type=int,
+        default=DEFAULT_CONNECT_TIMEOUT,
+        help=f"SSH connection timeout in seconds (default: {DEFAULT_CONNECT_TIMEOUT})",
+    )
     return parser.parse_args()
 
 
-def probe(alias: str, command: str) -> subprocess.CompletedProcess[bytes]:
+def probe(alias: str, command: str, connect_timeout: int) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
-        [ssh_binary(), "-T", "-o", "BatchMode=yes", "--", alias, command],
+        ssh_invocation(alias, command, connect_timeout),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
@@ -34,21 +50,7 @@ def probe(alias: str, command: str) -> subprocess.CompletedProcess[bytes]:
 
 
 def explain_ssh_failure(alias: str, result: subprocess.CompletedProcess[bytes]) -> str:
-    stderr = result.stderr.decode(errors="replace").lower()
-    if "permission denied" in stderr:
-        return (
-            f"{alias}: 密钥认证失败。先在本机运行 'ssh -v -- {alias}' 检查 IdentityFile、"
-            "ssh-agent 和远端 authorized_keys；本 Skill 不会回退到密码登录。"
-        )
-    if "could not resolve hostname" in stderr:
-        return f"{alias}: 无法解析主机。检查 HostName、VPN、DNS 或 ProxyJump 配置。"
-    if "host key verification failed" in stderr:
-        return f"{alias}: 主机指纹校验失败。请人工核对主机指纹，不要关闭 StrictHostKeyChecking。"
-    if "connection refused" in stderr or "operation timed out" in stderr:
-        return f"{alias}: SSH 服务不可达。检查网络/VPN、端口和远端 sshd 状态。"
-    detail = result.stderr.decode(errors="replace").strip().splitlines()
-    suffix = f" OpenSSH: {detail[-1]}" if detail else ""
-    return f"{alias}: SSH 连接失败。可运行 'ssh -v -- {alias}' 查看握手过程。{suffix}"
+    return diagnose_ssh_failure(alias, result).render()
 
 
 def main() -> int:
@@ -56,55 +58,65 @@ def main() -> int:
     try:
         executable = ssh_binary()
         aliases = explicit_aliases(args.config)
-        print(f"系统: {platform.system() or 'unknown'}")
-        print(f"OpenSSH: 可用 ({executable})")
-        print(f"已登记主机: {len(aliases)} 个")
+        print(f"system: {platform.system() or 'unknown'}")
+        print(f"openssh: available ({executable})")
+        print(f"registered_hosts: {len(aliases)}")
         if aliases:
-            print("别名: " + ", ".join(aliases))
-        else:
-            print(
-                f"下一步: 在 {args.config.expanduser()} 添加明确的 'Host <alias>' 配置，"
-                "然后重新运行本命令。"
-            )
+            print("aliases: " + ", ".join(aliases))
 
         problem = backend_problem()
         if problem:
-            print(f"sudo 密码保险柜: 暂不可用 ({backend_name()}: {problem})")
+            print(f"sudo_vault: unavailable ({backend_name()}: {problem})")
         else:
-            print(f"sudo 密码保险柜: 可用 ({backend_name()})")
+            print(f"sudo_vault: available ({backend_name()})")
 
         if not args.host:
             if aliases:
-                print("下一步: 使用 --host <alias> 检查连接与 sudo 是否已经就绪。")
-            return 0
+                print("status: ready")
+                print("next: Use --host <alias> to check SSH and sudo readiness.")
+                return 0
+            print("status: needs_setup")
+            print(
+                f"next: Add an explicit 'Host <alias>' block to {args.config.expanduser()}, "
+                "then rerun this check."
+            )
+            return 1
 
         alias = require_alias(args.host, args.config)
-        identity = probe(alias, "id -u")
+        identity = probe(alias, "id -u", args.connect_timeout)
         if identity.returncode != 0:
             print(explain_ssh_failure(alias, identity), file=sys.stderr)
             return 1
         if identity.stdout.strip() == b"0":
-            print(f"{alias}: 连接成功；远端账号是 root，无需保存 sudo 密码。")
+            print(f"status: ready\nhost: {alias}\nssh: connected\nprivilege: root\ncredential: not needed")
             return 0
 
-        nopasswd = probe(alias, "sudo -n -v")
+        nopasswd = probe(alias, "sudo -n -v", args.connect_timeout)
         if nopasswd.returncode == 0:
-            print(f"{alias}: 连接成功；已具备非交互 sudo，无需保存密码。")
+            print(
+                f"status: ready\nhost: {alias}\nssh: connected\nprivilege: sudo_nopasswd"
+                "\ncredential: not needed"
+            )
             return 0
 
         account = ssh_user(alias)
         if problem:
             print(
-                f"{alias}: 连接成功，但 sudo 需要密码且本机保险柜不可用。"
-                "可配置范围受限的 NOPASSWD，或在可信终端中交互管理。"
+                f"status: limited\nhost: {alias}\nssh: connected\nprivilege: ordinary_user"
+                f"\nsudo_vault: unavailable ({backend_name()}: {problem})"
+                "\nnext: Use scoped NOPASSWD or the user's trusted interactive administration workflow."
             )
             return 1
         if exists(alias, account):
-            print(f"{alias}: 连接成功；sudo 凭据已就绪 ({backend_name()})。")
+            print(
+                f"status: ready\nhost: {alias}\nssh: connected\nprivilege: sudo_password"
+                f"\ncredential: available ({backend_name()})"
+            )
             return 0
-        print(f"{alias}: 连接成功；普通权限可用，sudo 密码尚未配置。")
+        print(f"status: limited\nhost: {alias}\nssh: connected\nprivilege: ordinary_user")
+        print(f"credential: missing ({backend_name()})")
         print(
-            "如确实需要密码型 sudo，请只在你自己的可信终端运行: "
+            "next: If password-backed sudo is actually required, run this only in your trusted terminal: "
             f"python3 scripts/sudo_credential.py set {alias}"
         )
         return 1

@@ -16,7 +16,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from ssh_hosts import DEFAULT_CONFIG, explicit_aliases, require_alias, ssh_binary
+from ssh_hosts import DEFAULT_CONFIG, explicit_aliases, require_alias, ssh_binary  # noqa: E402
 
 
 SERVICE_PREFIX = "dev.ssh-hosts.sudo"

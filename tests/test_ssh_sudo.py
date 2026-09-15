@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import subprocess
 import sys
 import unittest
@@ -16,8 +18,10 @@ import sudo_credential  # noqa: E402
 import sudo_keychain  # noqa: E402
 
 
-def result(returncode: int, stdout: bytes = b"") -> subprocess.CompletedProcess[bytes]:
-    return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr=b"")
+def result(
+    returncode: int, stdout: bytes = b"", stderr: bytes = b""
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr=stderr)
 
 
 class SshSudoTests(unittest.TestCase):
@@ -25,6 +29,7 @@ class SshSudoTests(unittest.TestCase):
         return SimpleNamespace(
             allow_high_privilege=True,
             command=["--", "systemctl", "status", "docker"],
+            connect_timeout=10,
             config=Path("unused"),
             host="nas",
         )
@@ -43,7 +48,7 @@ class SshSudoTests(unittest.TestCase):
         self.assertEqual(ssh_sudo.main(), 0)
         remote_command = run_ssh.call_args.args[1]
         self.assertNotIn("sudo", remote_command)
-        quiet.assert_called_once_with("nas", "id -u")
+        quiet.assert_called_once_with("nas", "id -u", 10)
 
     @mock.patch.object(ssh_sudo, "parse_args")
     @mock.patch.object(ssh_sudo, "require_alias", return_value="nas")
@@ -77,7 +82,12 @@ class SshSudoTests(unittest.TestCase):
         parse.return_value = self.args()
         quiet.side_effect = [result(0, b"1000\n"), result(1)]
 
-        self.assertEqual(ssh_sudo.main(), 1)
+        error = io.StringIO()
+        with contextlib.redirect_stderr(error):
+            self.assertEqual(ssh_sudo.main(), 1)
+
+        self.assertIn("error: sudo.credential_missing", error.getvalue())
+        self.assertIn("next: Run", error.getvalue())
         run_ssh.assert_not_called()
 
     @mock.patch.object(ssh_sudo, "read_password", return_value=b"not-a-real-password")
@@ -103,6 +113,24 @@ class SshSudoTests(unittest.TestCase):
         call = run_ssh.call_args
         self.assertNotIn("not-a-real-password", call.args[1])
         self.assertEqual(call.kwargs["input_data"], b"not-a-real-password\n")
+
+    @mock.patch.object(ssh_sudo, "parse_args")
+    @mock.patch.object(ssh_sudo, "require_alias", return_value="nas")
+    @mock.patch.object(ssh_sudo, "quiet_ssh")
+    @mock.patch.object(ssh_sudo, "ssh")
+    def test_connection_failure_preserves_actionable_diagnostic(
+        self, run_ssh: mock.Mock, quiet: mock.Mock, _require: mock.Mock, parse: mock.Mock
+    ) -> None:
+        parse.return_value = self.args()
+        quiet.return_value = result(255, stderr=b"Permission denied (publickey).\n")
+
+        error = io.StringIO()
+        with contextlib.redirect_stderr(error):
+            self.assertEqual(ssh_sudo.main(), 1)
+
+        self.assertIn("error: ssh.authentication_failed", error.getvalue())
+        self.assertIn("next: ssh -v -- nas", error.getvalue())
+        run_ssh.assert_not_called()
 
 
 class KeychainTests(unittest.TestCase):

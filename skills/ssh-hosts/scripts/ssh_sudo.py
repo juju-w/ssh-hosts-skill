@@ -13,13 +13,25 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from ssh_hosts import DEFAULT_CONFIG, require_alias, ssh_binary
-from sudo_credential import backend_name, read_password, ssh_user
+from ssh_hosts import (  # noqa: E402
+    DEFAULT_CONFIG,
+    DEFAULT_CONNECT_TIMEOUT,
+    diagnose_ssh_failure,
+    require_alias,
+    ssh_invocation,
+)
+from sudo_credential import backend_name, read_password, ssh_user  # noqa: E402
 
 
-def ssh(alias: str, remote_command: str, *, input_data: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
+def ssh(
+    alias: str,
+    remote_command: str,
+    connect_timeout: int,
+    *,
+    input_data: bytes | None = None,
+) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
-        [ssh_binary(), "-T", "-o", "BatchMode=yes", "--", alias, remote_command],
+        ssh_invocation(alias, remote_command, connect_timeout),
         input=input_data,
         stdout=None,
         stderr=None,
@@ -27,11 +39,11 @@ def ssh(alias: str, remote_command: str, *, input_data: bytes | None = None) -> 
     )
 
 
-def quiet_ssh(alias: str, remote_command: str) -> subprocess.CompletedProcess[bytes]:
+def quiet_ssh(alias: str, remote_command: str, connect_timeout: int) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
-        [ssh_binary(), "-T", "-o", "BatchMode=yes", "--", alias, remote_command],
+        ssh_invocation(alias, remote_command, connect_timeout),
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         check=False,
     )
 
@@ -54,6 +66,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--host", required=True)
     parser.add_argument("--allow-high-privilege", action="store_true")
+    parser.add_argument(
+        "--connect-timeout",
+        type=int,
+        default=DEFAULT_CONNECT_TIMEOUT,
+        help=f"SSH connection timeout in seconds (default: {DEFAULT_CONNECT_TIMEOUT})",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     return parser.parse_args()
 
@@ -71,25 +89,33 @@ def main() -> int:
         return 2
     try:
         alias = require_alias(args.host, args.config)
-        identity = quiet_ssh(alias, "id -u")
+        identity = quiet_ssh(alias, "id -u", args.connect_timeout)
         if identity.returncode != 0:
-            raise RuntimeError(f"SSH connection failed for {alias}")
+            raise RuntimeError(diagnose_ssh_failure(alias, identity).render())
         if identity.stdout.strip() == b"0":
-            return ssh(alias, command_text(command)).returncode
+            return ssh(alias, command_text(command), args.connect_timeout).returncode
 
-        nopasswd = quiet_ssh(alias, "sudo -n -v")
+        nopasswd = quiet_ssh(alias, "sudo -n -v", args.connect_timeout)
         if nopasswd.returncode == 0:
-            return ssh(alias, "sudo -n -- " + command_text(command)).returncode
+            return ssh(alias, "sudo -n -- " + command_text(command), args.connect_timeout).returncode
 
         account = ssh_user(alias)
         password = read_password(alias, account)
         if password is None:
             raise RuntimeError(
-                f"sudo credential unavailable for '{alias}' in {backend_name()}; "
-                f"run 'python3 scripts/sudo_credential.py set {alias}' in a trusted local terminal, "
-                "or configure root/scoped NOPASSWD sudo"
+                "error: sudo.credential_missing\n"
+                f"host: {alias}\n"
+                "message: Password-backed sudo is required, but no credential is available in "
+                f"{backend_name()}.\n"
+                f"next: Run 'python3 scripts/sudo_credential.py set {alias}' in a trusted local terminal.\n"
+                "hint: A root account or narrowly scoped NOPASSWD rule needs no stored password."
             )
-        return ssh(alias, password_wrapper(command), input_data=password + b"\n").returncode
+        return ssh(
+            alias,
+            password_wrapper(command),
+            args.connect_timeout,
+            input_data=password + b"\n",
+        ).returncode
     except (RuntimeError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1
