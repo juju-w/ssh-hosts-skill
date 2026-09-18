@@ -2,13 +2,13 @@
 name: ssh-hosts
 slug: ssh-hosts
 displayName: SSH Hosts
-version: 1.2.1
-description: 安全检查和管理 macOS、Linux 与 Windows 上 OpenSSH 配置中明确登记的主机别名。适用于服务器、NAS、VPS、Docker、日志、磁盘、服务、远程诊断和文件传输；默认使用普通权限，仅在确有需要时安全提权。
-summary: 安全管理已登记的 SSH 主机，支持服务器、NAS、Docker、日志、磁盘、服务巡检和文件传输。
+version: 1.2.2
+description: 让 Agent 通过 SSH 打理你已经配置好的服务器、NAS 和 VPS。查日志、看磁盘、管理 Docker、检查服务、传文件或排查远程故障都可以直接交给它。支持 macOS、Linux 和 Windows，只连接明确登记的主机，默认使用普通权限。
+summary: 把你的 SSH 主机交给 Agent 打理：服务器巡检、Docker、日志、磁盘、服务和文件传输。
 homepage: https://github.com/juju-w/ssh-hosts-skill
 license: MIT-0
 metadata:
-  version: 1.2.1
+  version: 1.2.2
   author: JuJu
   tags:
     - ssh
