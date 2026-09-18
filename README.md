@@ -29,6 +29,11 @@ npx skills add juju-w/ssh-hosts-skill
 Alternatively, clone the repository and copy `skills/ssh-hosts` into the Skill directory used by
 your Agent.
 
+The SkillHub/WorkBuddy package uses a maintained Simplified Chinese localization. Its reproducible
+source and build instructions live in
+[`packaging/skillhub-zh-CN`](packaging/skillhub-zh-CN/README.md); the default GitHub package remains
+English for international registries.
+
 ## First run
 
 Make sure at least one concrete alias exists in `~/.ssh/config`:

@@ -26,6 +26,10 @@ npx skills add juju-w/ssh-hosts-skill
 
 也可以克隆仓库，再把 `skills/ssh-hosts` 复制到 Agent 使用的 Skill 目录。
 
+SkillHub/WorkBuddy 分发包提供维护中的简体中文入口和参考文档。可复现的中文包源码与构建说明
+位于 [`packaging/skillhub-zh-CN`](packaging/skillhub-zh-CN/README.md)；GitHub 默认安装包继续使用
+英文，以兼容国际 Skill 市场。
+
 ## 首次使用
 
 确认 `~/.ssh/config` 中至少存在一个明确的别名：
